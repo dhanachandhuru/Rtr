@@ -11,7 +11,7 @@ module.exports = sequelize.define("login_details",{
     type: Sequelize.INTEGER
   },
   userType: {
-    type: Sequelize.ENUM('1', '2', '3', '4'),
+    type: Sequelize.ENUM('1', '2', '3', '4', '5'),
     allowNull: false,
     validate: {
       notNull: {
@@ -21,8 +21,8 @@ module.exports = sequelize.define("login_details",{
         msg: "select atleast one user type",
       },
       isIn: {
-        args: [['1', '2', '3', '4']],
-        msg: "userType must be one of: 1, 2, 3, 4"
+        args: [['1', '2', '3', '4','5']],
+        msg: "userType must be one of: 1, 2, 3, 4, 5"
       }
     }
   },

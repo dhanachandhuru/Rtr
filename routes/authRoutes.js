@@ -3,7 +3,7 @@ const { login , signup, authentication } = require("../controllers/authControlle
 
 // auth controller 
 router.route("/login").post(login)
-router.route("/signup").post( signup)
+router.route("/signup").post(signup)
 
 
 module.exports = router

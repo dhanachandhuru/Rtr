@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js"
   },
-  "author": "Vishnu v",
+  "author": "Chandhuru s",
   "license": "ISC",
   "dependencies": {
     "aws-sdk": "^2.1640.0",

@@ -1,5 +1,5 @@
 const router = require("express").Router();
-const { getAllusers, addDesignation, getAllDesignations, deleteUser, updateUser, getAllCabinetReports, getAllClubReports, createClubReportType, createCabinetReportType, getAllGrievances, updateGrievance, createGrievance, uploadResource, getAllResource, getAllEventRequests, ApproveRequests, RejectRequests} = require("../controllers/adminController");
+const { getAllusers, addDesignation, getAllDesignations, deleteUser, updateUser, getAllCabinetReports, getAllClubReports, createClubReportType, createCabinetReportType, getAllGrievances, updateGrievance, createGrievance, uploadResource, getAllResource, getAllEventRequests, ApproveRequests, RejectRequests,addEvent, getAllEvents, getEventWithId, deleteEvent} = require("../controllers/adminController");
 const { authentication } = require("../controllers/authController")
 
 // auth controller 
@@ -20,4 +20,8 @@ router.route("/get-all-resources").get(authentication,getAllResource)
 router.route("/get-all-event-requests").get(authentication,getAllEventRequests)
 router.route("/approve-event-requests").post(authentication,ApproveRequests)
 router.route("/reject-event-requests").post(authentication,RejectRequests)
+router.route("/add-event").post(authentication,addEvent)
+router.route("/delete-event").post(authentication,deleteEvent)
+router.route("/get-all-events").get(authentication,getAllEvents)
+router.route("/get-event-with-id").post(authentication,getEventWithId)
 module.exports = router

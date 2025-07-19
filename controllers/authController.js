@@ -72,7 +72,7 @@ const signup = catchAsync(async (req, res, next) => {
         // if body is not present
         !body ||
         // user type should be any of the 4 types (1,2,3,4)
-        !(['1','2','3','4'].includes(userType)) ||
+        !(['1','2','3','4','5'].includes(userType)) ||
         // password should be 8 chars long
         body.userPassword.length < 8
     ) {

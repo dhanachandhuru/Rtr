@@ -418,9 +418,9 @@ const getAllEvents = catchAsync(async (req, res, next) => {
     const [resp2, metadata2] = await sequelize_db.query(que2)
     const finalData = [...resp,...resp2]
     console.log(finalData)
-    if (!resp) {
-        return next(new AppError("Failed Fetching Events", 400))
-    }
+    // if (!resp) {
+        // return next(new AppError("Failed Fetching Events", 400))
+    // }
     res.status(200).json(finalData)
 })
 

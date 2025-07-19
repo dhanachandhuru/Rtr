@@ -14,7 +14,6 @@ const globalErrorController = require("./controllers/errorController")
 const cors = require("cors")
 // configs
 dotenv.config({path:`${process.cwd()}/.env`})
-
 // middlewares
 app.use(express.json())
 app.use(cors())
