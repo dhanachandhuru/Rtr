@@ -560,4 +560,7 @@ const getEventWithId = catchAsync(async (req, res, next) => {
 
 
 
+
+
+
 module.exports = {addEvent,getAllEvents,getEventWithId, deleteEvent,RejectRequests,ApproveRequests,getAllEventRequests,getAllResource,uploadResource,createGrievance,updateGrievance,getAllGrievances,createCabinetReportType,createClubReportType,getAllClubReports,getAllCabinetReports,updateUser,deleteUser,getAllusers,addDesignation,getAllDesignations}
