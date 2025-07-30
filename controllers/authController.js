@@ -193,13 +193,18 @@ const signup = catchAsync(async (req, res, next) => {
 
 
 const approveUser = catchAsync(async (req, res, next) => {
-    const { userId } = req.params;
+    const { userId, id } = req.params;
     console.log("user idd",userId)
 
     // Find login entry
     const userLogin = await login_details.findOne({ where: { userId } });
+    const userDetails = await user_details.findOne({ where: { id: userId } });
+    console.log("userDetails idd",userDetails)
     if (!userLogin) {
         return next(new AppError("User not found", 404));
+    }
+    if (!userDetails) {
+        return next(new AppError("userDetails not found", 404));
     }
 
     if (userLogin.isApproved) {
@@ -208,7 +213,9 @@ const approveUser = catchAsync(async (req, res, next) => {
 
     // Mark user as approved
     userLogin.isApproved = true;
+    userDetails.isApproved = true;
     await userLogin.save();
+    await userDetails.save();
 
     // Now send email using SendGrid
     const sgMail = require('@sendgrid/mail');
@@ -216,10 +223,13 @@ const approveUser = catchAsync(async (req, res, next) => {
 
     const msg = {
         to: userLogin.userEmail,
-        from: 'chandhuru.dev.in@gmail.com',
+        from: {
+      name: 'Rotaract3203 Account Activation',
+      email: 'chandhuru.dev.in@gmail.com',
+    },
         subject: 'Your account has been approved',
         text: `Hello,\n\nYour account has been approved by the admin.\n\nUsername: ${userLogin.userEmail}\nPassword: [hidden for security]\n\nYou may now log in.`,
-        html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}<br><b>Password:</b> ${userLogin.userMobile} if you need to reset your password kindly check in profile and reset your password<br><br>You may now log in.`,
+        html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}<br><b>Password:</b> <b>${userDetails.userMobile}</b> (if you need to reset your password kindly check in profile and reset your password)<br><br>You may now log in.`,
     };
 
     await sgMail.send(msg);
