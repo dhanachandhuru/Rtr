@@ -232,10 +232,9 @@ const getUnapprovedUsers = catchAsync(async (req, res, next) => {
   const unapprovedUsers = await login_details.findAll({
     where: {
       isApproved: false,
-      userId: { [Op.in]: [1, 2, 4, 5] },
+      userType: { [Op.in]: ['1', '2', '4'] },
     },
   });
-
   // Step 2: Attach related model manually based on userType
   const enrichedUsers = await Promise.all(
     unapprovedUsers.map(async (user) => {
