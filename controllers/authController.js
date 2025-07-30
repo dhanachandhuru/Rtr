@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken")
 const catchAsync = require("../utils/catchAsync")
 const AppError = require("../utils/appError")
 const user_details = require("../db/models/user_details")
+const { Op } = require('sequelize');
 
 
 const generateToken = (payload) => {
@@ -106,7 +107,8 @@ const signup = catchAsync(async (req, res, next) => {
             facebookHandle: body.facebookHandle,
             instagramHandle: body.instagramHandle,
             linkedinHandle: body.linkedinHandle,
-            clubCapacity:0
+            clubCapacity:0,
+            isApproved: false
         })
         if (new_club) {
             // encrypt the password
@@ -118,6 +120,7 @@ const signup = catchAsync(async (req, res, next) => {
                 userEmail: body.userEmail,
                 userPassword: hashedPassword,
                 clubId: new_club.id,
+                isApproved: false
             })
             // send error if no login created
             if (!newlogin_detail) {
@@ -153,6 +156,7 @@ const signup = catchAsync(async (req, res, next) => {
             instaHandle: body.instaHandle,
             linkedinHandle: body.linkedinHandle,
             facebookHandle: body.facebookHandle,
+            isApproved: false
         })
         // encrypt the password
         const hashedPassword = bcrypt.hashSync(body.userPassword, 10)
@@ -165,6 +169,7 @@ const signup = catchAsync(async (req, res, next) => {
                 userEmail: body.userEmail,
                 userPassword: hashedPassword,
                 userId: new_user.id,
+                isApproved: false
             })
             // send error if no login created
             if (!newlogin_detail) {
@@ -185,6 +190,81 @@ const signup = catchAsync(async (req, res, next) => {
 
     }
 })
+
+
+const approveUser = catchAsync(async (req, res, next) => {
+    const { userId } = req.params;
+    console.log("user idd",userId)
+
+    // Find login entry
+    const userLogin = await login_details.findOne({ where: { userId } });
+    if (!userLogin) {
+        return next(new AppError("User not found", 404));
+    }
+
+    if (userLogin.isApproved) {
+        return res.status(400).json({ message: "User already approved" });
+    }
+
+    // Mark user as approved
+    userLogin.isApproved = true;
+    await userLogin.save();
+
+    // Now send email using SendGrid
+    const sgMail = require('@sendgrid/mail');
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+    const msg = {
+        to: userLogin.userEmail,
+        from: 'chandhuru.dev.in@gmail.com',
+        subject: 'Your account has been approved',
+        text: `Hello,\n\nYour account has been approved by the admin.\n\nUsername: ${userLogin.userEmail}\nPassword: [hidden for security]\n\nYou may now log in.`,
+        html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}<br><b>Password:</b> ${userLogin.userMobile} if you need to reset your password kindly check in profile and reset your password<br><br>You may now log in.`,
+    };
+
+    await sgMail.send(msg);
+
+    return res.status(200).json({ message: "User approved and email sent" });
+});
+
+const getUnapprovedUsers = catchAsync(async (req, res, next) => {
+  // Step 1: Fetch all unapproved login_details
+  const unapprovedUsers = await login_details.findAll({
+    where: {
+      isApproved: false,
+      userId: { [Op.in]: [1, 2, 4, 5] },
+    },
+  });
+
+  // Step 2: Attach related model manually based on userType
+  const enrichedUsers = await Promise.all(
+    unapprovedUsers.map(async (user) => {
+      const userJson = user.toJSON(); // clone plain object
+
+      if (['1', '2', '4', '5'].includes(user.userType)) {
+        userJson.userDetails = await user_details.findOne({
+          where: { id: user.userId },
+        });
+      } 
+    //   if (['4', '5'].includes(user.userType)) {
+    //     userJson.clubDetails = await club_details.findOne({
+    //       where: { id: user.clubId },
+    //     });
+    //   }
+
+      return userJson;
+    })
+  );
+
+  return res.status(200).json({
+    status: 'success',
+    results: enrichedUsers.length,
+    data: enrichedUsers,
+  });
+});
+
+
+
 
 const authentication = catchAsync(async (req, res, next) => {
     let idToken = "";
@@ -214,4 +294,4 @@ req.tokenDetail = tokenDetail
 return next()
 })
 
-module.exports = { login, signup, authentication }
+module.exports = { login, signup, authentication, approveUser, getUnapprovedUsers }

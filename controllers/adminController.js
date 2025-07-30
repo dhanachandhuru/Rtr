@@ -13,18 +13,38 @@ const grievances = require("../db/models/grievances");
 const cabinet_events = require("../db/models/cabinet_events");
 const club_events = require("../db/models/club_events");
 const admin_events= require("../db/models/admin_events");
+const club_details = require("../db/models/club_details");
+const blood_request = require("../db/models/blood_request");
+const { Parser } = require("json2csv");
 
-const getAllusers = catchAsync(async(req,res,next)=>{
-    const query = `select ud.* , ld."userEmail" , d.designation ,d.id as designationId from user_details ud
-    join login_details ld on ud.id = ld."userId"
-    left join designations d on ud."designation" = d."id"
-    where ld."userType" != '1';`;
-    const [results,metadata]= await sequelize_db.query(query);
-    if(!results){
-        return next(new AppError("No Designations Found Add some",400))
-    }
-    res.status(200).json(results)
-})
+const getAllusers = catchAsync(async (req, res, next) => {
+  const query = `
+    SELECT 
+      ud.*, 
+      ld."userEmail", 
+      d.designation, 
+      d.id AS "designationId"
+    FROM user_details ud
+    JOIN login_details ld ON ud.id = ld."userId"
+    LEFT JOIN designations d 
+  ON (
+    CASE 
+      WHEN ud."designation" ~ '^[0-9]+$' THEN ud."designation"::integer
+      ELSE NULL
+    END
+  ) = d."id"
+
+    WHERE ld."userType" != '1';
+  `;
+
+  const [results, metadata] = await sequelize_db.query(query);
+
+  if (!results || results.length === 0) {
+    return next(new AppError("No users found", 400));
+  }
+
+  res.status(200).json(results);
+});
 
 
 const updateUser = catchAsync(async(req,res,next) =>{
@@ -122,15 +142,8 @@ const getAllClubReports = catchAsync(async (req, res, next) => {
 
 let resp;
 
-if (req.tokenDetail.usertype === 1) {
     // Admin — get all club reports
     resp = await club_reports.findAll();
-} else {
-    // Club user — get only their own reports
-    resp = await club_reports.findAll({
-        where: { clubId: req.tokenDetail.userId }
-    });
-}
 
 if (!resp || resp.length === 0) {
     return next(new AppError("No reports found", 404));
@@ -558,9 +571,79 @@ const getEventWithId = catchAsync(async (req, res, next) => {
     res.status(200).json(result[0]);
 });
 
+const clubsUnderMe = catchAsync(async (req, res, next) => {
+  try {
+    const clubs = await club_details.findAll({
+      attributes: ['id', 'clubName'],
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: clubs,
+    });
+  } catch (err) {
+    return next(new AppError('Failed to fetch clubs', 500));
+  }
+});
+
+// Model: blood_requests (id, name, phone, email, bloodType)
+const createBloodRequest = catchAsync(async (req, res, next) => {
+  const { name, phone, email, bloodType } = req.body;
+
+  const request = await blood_request.create({
+    name,
+    phone,
+    email,
+    bloodType,
+  });
+
+  res.status(201).json({
+    status: "success",
+    data: request,
+  });
+});
+
+
+const getAllBloodRequests = catchAsync(async (req, res, next) => {
+  const requests = await blood_request.findAll();
+
+  res.status(200).json({
+    status: "success",
+    data: requests,
+  });
+});
+
+
+const getBloodRequestWithMatches = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+
+  const request = await blood_request.findByPk(id);
+  if (!request) return next(new AppError("Request not found", 404));
+
+  const matchedUsers = await user_details.findAll({
+    where: { bloodGroup: request.bloodType },
+  });
+
+  // Convert to CSV
+  const fields = ["userName", "userMobile", "bloodGroup"];
+  const parser = new Parser({ fields });
+  const csv = parser.parse(matchedUsers);
+
+  res.header("Content-Type", "text/csv");
+  res.attachment(`matched_users_${request.bloodType}.csv`);
+  return res.send(csv);
+});
+
+
+const deleteBloodRequest = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+
+  const deleted = await blood_request.destroy({ where: { id } });
+  if (!deleted) return next(new AppError("Request not found", 404));
+
+  res.status(200).json({ status: "success", message: "Request deleted." });
+});
 
 
 
-
-
-module.exports = {addEvent,getAllEvents,getEventWithId, deleteEvent,RejectRequests,ApproveRequests,getAllEventRequests,getAllResource,uploadResource,createGrievance,updateGrievance,getAllGrievances,createCabinetReportType,createClubReportType,getAllClubReports,getAllCabinetReports,updateUser,deleteUser,getAllusers,addDesignation,getAllDesignations}
+module.exports = {addEvent,getAllEvents,getEventWithId, deleteEvent,RejectRequests,ApproveRequests,getAllEventRequests,getAllResource,uploadResource,createGrievance,updateGrievance,getAllGrievances,createCabinetReportType,createClubReportType,getAllClubReports,getAllCabinetReports,updateUser,deleteUser,getAllusers,addDesignation,getAllDesignations, clubsUnderMe, createBloodRequest,getAllBloodRequests, getBloodRequestWithMatches, deleteBloodRequest}

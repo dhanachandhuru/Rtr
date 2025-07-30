@@ -109,6 +109,10 @@ module.exports = sequelize.define("user_details",{
     allowNull: false,
     type: Sequelize.DATE
   },
+  isApproved: {
+  type: Sequelize.BOOLEAN,
+  defaultValue: false, // By default, not approved
+  },
 },{
   freezeTableName:true,
   modelName:"user_details",

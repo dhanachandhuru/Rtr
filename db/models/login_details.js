@@ -63,6 +63,10 @@ module.exports = sequelize.define("login_details",{
     type: Sequelize.INTEGER,
     allowNull:true,
   },
+  isApproved: {
+    type: Sequelize.BOOLEAN,
+    allowNull: false,
+  },
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE

@@ -1,6 +1,7 @@
 const router = require("express").Router();
-const { getAllusers, addDesignation, getAllDesignations, deleteUser, updateUser, getAllCabinetReports, getAllClubReports, createClubReportType, createCabinetReportType, getAllGrievances, updateGrievance, createGrievance, uploadResource, getAllResource, getAllEventRequests, ApproveRequests, RejectRequests,addEvent, getAllEvents, getEventWithId, deleteEvent} = require("../controllers/adminController");
+const { getAllusers, addDesignation, getAllDesignations, deleteUser, updateUser, getAllCabinetReports, getAllClubReports, createClubReportType, createCabinetReportType, getAllGrievances, updateGrievance, createGrievance, uploadResource, getAllResource, getAllEventRequests, ApproveRequests, RejectRequests,addEvent, getAllEvents, getEventWithId, deleteEvent, clubsUnderMe, createBloodRequest, getAllBloodRequests, getBloodRequestWithMatches, deleteBloodRequest} = require("../controllers/adminController");
 const { authentication } = require("../controllers/authController")
+const { approveUser, getUnapprovedUsers } = require("../controllers/authController");
 
 // auth controller 
 router.route("/get-all-users").get( authentication,getAllusers)
@@ -24,4 +25,11 @@ router.route("/add-event").post(authentication,addEvent)
 router.route("/delete-event").post(authentication,deleteEvent)
 router.route("/get-all-events").get(authentication,getAllEvents)
 router.route("/get-event-with-id").post(authentication,getEventWithId)
+router.route("/approveUser/:userId").patch(authentication,approveUser)
+router.route("/unapproved-users").get(authentication,getUnapprovedUsers)
+router.route("/get-my-clubs").get(authentication,clubsUnderMe)
+router.route("/add-blood-request").post(createBloodRequest)
+router.route("/get-all-blood-request").get(authentication,getAllBloodRequests)
+router.route("/get-all-blood-matched-docs/:id").get(authentication,getBloodRequestWithMatches)
+router.route("/delete-blood-request/:id").delete(authentication,deleteBloodRequest)
 module.exports = router

@@ -123,6 +123,10 @@ module.exports = sequelize.define("club_details",{
     allowNull: false,
     type: Sequelize.DATE
   },
+  isApproved: {
+  type: Sequelize.BOOLEAN,
+  defaultValue: false,
+  },
 },{
   freezeTableName:true,
   modelName:"club_details",
