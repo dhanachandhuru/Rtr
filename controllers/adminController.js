@@ -16,6 +16,7 @@ const admin_events= require("../db/models/admin_events");
 const club_details = require("../db/models/club_details");
 const blood_request = require("../db/models/blood_request");
 const { Parser } = require("json2csv");
+const multer = require("multer");
 
 const getAllusers = catchAsync(async (req, res, next) => {
   const query = `
@@ -249,28 +250,170 @@ const getAllResource = catchAsync(async(req,res,next)=>{
     res.status(200).json(resp)
 })
 
-const uploadResource = catchAsync(async(req,res,next)=>{
-    const body = req.body
-    const userType = req.tokenDetail.userType
-    if(userType != 1){
-        return next(new AppError("Only Admins can upload resources", 401))
+// const uploadResource = catchAsync(async(req,res,next)=>{
+//     const body = req.body
+//     const userType = req.tokenDetail.userType
+//     if(userType != 1){
+//         return next(new AppError("Only Admins can upload resources", 401))
+//     }
+//     if(!body.name || !body.description || !body.filelink){
+//         return next(new AppError("Please provide name, description and filelink", 400))
+//     }
+//     const resp = await resources.create({
+//         name:body.name,
+//         description:body.description,
+//         filelink:body.filelink,
+//         uploadedBy:req.tokenDetail.userId
+//     })
+//     if (!resp) {
+//         return next(new AppError("Failed Creating Report", 400))
+//     }
+//     res.status(200).json({
+//         message: "success"
+//     })
+// })
+
+
+// memory storage to get buffer
+const allowedMimes = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+  "text/plain",
+];
+
+// Multer setup (memory storage)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB
+  fileFilter: (_req, file, cb) => {
+    if (!allowedMimes.includes(file.mimetype)) {
+      return cb(new AppError("Unsupported file type", 400), false);
     }
-    if(!body.name || !body.description || !body.filelink){
-        return next(new AppError("Please provide name, description and filelink", 400))
+    cb(null, true);
+  },
+});
+
+const uploadResourceMiddleware = upload.single("file"); // field name "file"
+
+const uploadResource = catchAsync(async (req, res, next) => {
+  // Authentication guard
+  if (!req.tokenDetail) {
+    return next(new AppError("Authentication required", 401));
+  }
+  const userType = Number(req.tokenDetail.userType ?? -1);
+  if (userType !== 1) {
+    return next(new AppError("Only admins can upload resources", 403));
+  }
+
+  const { name, description, filelink } = req.body;
+  if (!name || !description) {
+    return next(new AppError("Please provide name and description", 400));
+  }
+
+  if (!req.file && !filelink) {
+    return next(new AppError("Provide either a file to upload or a filelink", 400));
+  }
+
+  if (!req.file && filelink) {
+    try {
+      new URL(String(filelink).trim());
+    } catch (err) {
+      return next(new AppError("Invalid filelink URL", 400));
     }
-    const resp = await resources.create({
-        name:body.name,
-        description:body.description,
-        filelink:body.filelink,
-        uploadedBy:req.tokenDetail.userId
-    })
-    if (!resp) {
-        return next(new AppError("Failed Creating Report", 400))
+  }
+
+  const payload = {
+    name: String(name).trim(),
+    description: String(description).trim(),
+    uploadedBy: req.tokenDetail.userId,
+  };
+
+  if (req.file) {
+    payload.fileName = req.file.originalname;
+    payload.mimeType = req.file.mimetype;
+    payload.fileData = req.file.buffer;
+    payload.filelink = null;
+  } else if (filelink) {
+    payload.filelink = String(filelink).trim();
+    payload.fileName = null;
+    payload.mimeType = null;
+    payload.fileData = null;
+  }
+
+  const resp = await resources.create(payload);
+
+  if (!resp) {
+    return next(new AppError("Failed creating resource", 500));
+  }
+
+  res.status(201).json({
+    message: "success",
+    resource: {
+      id: resp.id,
+      name: resp.name,
+      description: resp.description,
+      filelink: resp.filelink,
+      fileName: resp.fileName,
+      mimeType: resp.mimeType,
+      uploadedBy: resp.uploadedBy,
+      createdAt: resp.createdAt,
+    },
+  });
+});
+
+
+const getimage =  catchAsync(async (req, res, next) => {
+  const resource = await resources.findByPk(req.params.id);
+  if (!resource || !resource.fileData || !resource.mimeType.startsWith("image/")) {
+    return res.status(404).send("Image not found");
+  }
+
+  res.setHeader("Content-Type", resource.mimeType);
+  res.send(resource.fileData);
+});
+
+const downloadResource = async (req, res) => {
+  try {
+    const resourceId = req.params.id;
+
+    const resource = await resources.findByPk(resourceId);
+    if (!resource) {
+      return res.status(404).json({ message: "Resource not found" });
     }
-    res.status(200).json({
-        message: "success"
-    })
-})
+
+    // If file is stored on S3 or a public link
+    if (resource.filelink && resource.filelink.startsWith("http")) {
+      return res.redirect(resource.filelink); // Redirect to actual file
+    }
+
+    const filePath = path.resolve(resource.path); // e.g., uploads/somefile.pdf
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: "File not found on server" });
+    }
+
+    res.setHeader("Content-Disposition", `attachment; filename="${resource.filename}"`);
+    res.setHeader("Content-Type", resource.mimetype || "application/octet-stream");
+
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+
+  } catch (error) {
+    console.error("Download Error:", error);
+    res.status(500).json({ message: "Error downloading file" });
+  }
+};
+
 
 const getAllEventRequests = catchAsync(async(req,res,next)=>{
     const [clubEvents,meta] = await sequelize_db.query(`
@@ -646,4 +789,4 @@ const deleteBloodRequest = catchAsync(async (req, res, next) => {
 
 
 
-module.exports = {addEvent,getAllEvents,getEventWithId, deleteEvent,RejectRequests,ApproveRequests,getAllEventRequests,getAllResource,uploadResource,createGrievance,updateGrievance,getAllGrievances,createCabinetReportType,createClubReportType,getAllClubReports,getAllCabinetReports,updateUser,deleteUser,getAllusers,addDesignation,getAllDesignations, clubsUnderMe, createBloodRequest,getAllBloodRequests, getBloodRequestWithMatches, deleteBloodRequest}
+module.exports = {addEvent,getAllEvents,getEventWithId, deleteEvent,RejectRequests,ApproveRequests,getAllEventRequests,getAllResource,uploadResource,createGrievance,updateGrievance,getAllGrievances,createCabinetReportType,createClubReportType,getAllClubReports,getAllCabinetReports,updateUser,deleteUser,getAllusers,addDesignation,getAllDesignations, clubsUnderMe, createBloodRequest,getAllBloodRequests, getBloodRequestWithMatches, deleteBloodRequest,uploadResourceMiddleware, getimage, downloadResource}
