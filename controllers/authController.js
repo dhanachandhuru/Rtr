@@ -98,6 +98,7 @@ const signup = catchAsync(async (req, res, next) => {
             clubLogo: body.clubLogo,
             presidentId: body.presidentId,
             clubType: body.clubType,
+            userMobile: body.userMobile,
             secretaryId: body.secretaryId,
             installationDate: body.installationDate,
             parentRotaryName: body.parentRotaryName,
@@ -194,31 +195,39 @@ const signup = catchAsync(async (req, res, next) => {
 
 // approveUser
 const approveUser = catchAsync(async (req, res, next) => {
-  const { userId } = req.params; // if route is /approve/:userId
+  const { userId } = req.params; 
 
   // fetch login once
   let userLogin = await login_details.findOne({
     where: {
       [Op.or]: [
-        { id: userId },
+        { id: userId},
         // you can uncomment if you ever want clubId based lookup:
         // { clubId: userId },
       ],
     },
   });
 
-  if (!userLogin) {
-    return next(new AppError("User login not found", 404));
-  }
+if (!userLogin) {
+  userLogin = await login_details.findOne({
+    where: { userId },
+  });
+}
 
-  const userType = String(userLogin.userType);
-  const clubId = userLogin.clubId;
+if (!userLogin) {
+  return next(new AppError("User login not found", 404));
+}
+
+
+  console.log("userType", userLogin.userType);
 
   let userDetails = null;
   let clubDetails = null;
+  const userTypeStr = String(userLogin.userType).toLowerCase();
 
-  if (userType === '3' || userType.toLowerCase() === 'club') {
+  if (userTypeStr === '3' || userTypeStr === 'club') {
     // club account
+    const clubId = userLogin.clubId;
     clubDetails = await club_details.findOne({ where: { id: clubId } });
     if (!clubDetails) {
       return next(new AppError("clubDetails not found", 404));
@@ -232,12 +241,15 @@ const approveUser = catchAsync(async (req, res, next) => {
   }
 
   // Already approved?
-  if (userLogin.isApproved || (clubDetails && clubDetails.isApproved)) {
+  if (
+    userLogin.isApproved ||
+    (clubDetails && clubDetails.isApproved) ||
+    (userDetails && userDetails.isApproved)
+  ) {
     return res.status(400).json({ message: "User already approved" });
   }
 
-  // Start transaction for atomicity
-//   const t = await sequelize_db.transaction();
+  // Approve
   try {
     userLogin.isApproved = true;
     await userLogin.save();
@@ -249,8 +261,8 @@ const approveUser = catchAsync(async (req, res, next) => {
       userDetails.isApproved = true;
       await userDetails.save();
     }
-
   } catch (err) {
+    console.error("Approval save failed:", err);
     return next(new AppError("Failed to approve user", 500));
   }
 
@@ -258,27 +270,48 @@ const approveUser = catchAsync(async (req, res, next) => {
   const sgMail = require('@sendgrid/mail');
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-  let htmlPasswordLine = '';
-  if (userDetails && userDetails.userMobile) {
-    htmlPasswordLine = `<br><b>Password:</b> <b>${userDetails.userMobile}</b> (if you need to reset your password kindly check in profile and reset your password)`;
-  }
+  let msg;
+  if (userTypeStr === '3' || userTypeStr === 'club') {
+  msg = {
 
-  const msg = {
-    to: userLogin.userEmail,
-    from: {
+        to: userLogin.userEmail,
+
+        from: {
+
       name: 'Rotaract3203 Account Activation',
+
       email: 'chandhuru.dev.in@gmail.com',
+
     },
-    subject: 'Your account has been approved',
-    text: `Hello,
 
-Your account has been approved by the admin.
+        subject: 'Your account has been approved',
 
-Username: ${userLogin.userEmail}
+        text: `Hello,\n\nYour account has been approved by the admin.\n\nUsername: ${userLogin.userEmail}\nPassword: [hidden for security]\n\nYou may now log in.`,
 
-You may now log in.`,
-    html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}${htmlPasswordLine}<br><br>You may now log in.`,
-  };
+        html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}<br><b>Password:</b> <b>${clubDetails.userMobile}</b> (if you need to reset your password kindly check in profile and reset your password)<br><br>You may now log in.`,
+
+    };
+    }else{
+        msg = {
+
+        to: userLogin.userEmail,
+
+        from: {
+
+      name: 'Rotaract3203 Account Activation',
+
+      email: 'chandhuru.dev.in@gmail.com',
+
+    },
+
+        subject: 'Your club account has been approved',
+
+        text: `Hello,\n\nYour club account has been approved by the admin.\n\nUsername: ${userLogin.userEmail}\nPassword: [hidden for security]\n\nYou may now log in.`,
+
+        html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}<br><b>Password:</b> <b>${userDetails.userMobile}</b> (if you need to reset your password kindly check in profile and reset your password)<br><br>You may now log in.`,
+
+    };
+    }
 
   try {
     await sgMail.send(msg);

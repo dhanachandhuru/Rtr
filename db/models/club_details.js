@@ -22,6 +22,9 @@ module.exports = sequelize.define("club_details",{
       }
     }
   },
+  userMobile: {
+    type: Sequelize.STRING,
+  },
   charterId: {
     type: Sequelize.STRING,
     allowNull:false,
