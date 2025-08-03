@@ -198,6 +198,7 @@ const approveUser = catchAsync(async (req, res, next) => {
     // Find login entry
     const userLogin = await login_details.findOne({ where: { userId } });
     const userDetails = await user_details.findOne({ where: { id: userId } });
+    const clubDetails = await club_details.findOne({ where: { id: userId } });
     console.log("userDetails idd",userDetails)
     if (!userLogin) {
         return next(new AppError("User not found", 404));
@@ -213,8 +214,10 @@ const approveUser = catchAsync(async (req, res, next) => {
     // Mark user as approved
     userLogin.isApproved = true;
     userDetails.isApproved = true;
+    clubDetails.isApproved = true;
     await userLogin.save();
     await userDetails.save();
+    await clubDetails.save();
 
     // Now send email using SendGrid
     const sgMail = require('@sendgrid/mail');
