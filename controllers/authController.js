@@ -7,6 +7,7 @@ const catchAsync = require("../utils/catchAsync")
 const AppError = require("../utils/appError")
 const user_details = require("../db/models/user_details")
 const { Op } = require('sequelize');
+// const sequelize_db = require('../config/config.js'); // adjust path as needed
 
 
 const generateToken = (payload) => {
@@ -191,53 +192,105 @@ const signup = catchAsync(async (req, res, next) => {
 })
 
 
+// approveUser
 const approveUser = catchAsync(async (req, res, next) => {
-    const { userId, id } = req.params;
-    console.log("user idd",userId)
+  const { userId } = req.params; // if route is /approve/:userId
 
-    // Find login entry
-    const userLogin = await login_details.findOne({ where: { userId } });
-    const userDetails = await user_details.findOne({ where: { id: userId } });
-    const clubDetails = await club_details.findOne({ where: { id: userId } });
-    console.log("userDetails idd",userDetails)
-    if (!userLogin) {
-        return next(new AppError("User not found", 404));
+  // fetch login once
+  let userLogin = await login_details.findOne({
+    where: {
+      [Op.or]: [
+        { id: userId },
+        // you can uncomment if you ever want clubId based lookup:
+        // { clubId: userId },
+      ],
+    },
+  });
+
+  if (!userLogin) {
+    return next(new AppError("User login not found", 404));
+  }
+
+  const userType = String(userLogin.userType);
+  const clubId = userLogin.clubId;
+
+  let userDetails = null;
+  let clubDetails = null;
+
+  if (userType === '3' || userType.toLowerCase() === 'club') {
+    // club account
+    clubDetails = await club_details.findOne({ where: { id: clubId } });
+    if (!clubDetails) {
+      return next(new AppError("clubDetails not found", 404));
     }
+  } else {
+    // normal user
+    userDetails = await user_details.findOne({ where: { id: userId } });
     if (!userDetails) {
-        return next(new AppError("userDetails not found", 404));
+      return next(new AppError("userDetails not found", 404));
     }
+  }
 
-    if (userLogin.isApproved) {
-        return res.status(400).json({ message: "User already approved" });
-    }
+  // Already approved?
+  if (userLogin.isApproved || (clubDetails && clubDetails.isApproved)) {
+    return res.status(400).json({ message: "User already approved" });
+  }
 
-    // Mark user as approved
+  // Start transaction for atomicity
+//   const t = await sequelize_db.transaction();
+  try {
     userLogin.isApproved = true;
-    userDetails.isApproved = true;
-    clubDetails.isApproved = true;
     await userLogin.save();
-    await userDetails.save();
-    await clubDetails.save();
 
-    // Now send email using SendGrid
-    const sgMail = require('@sendgrid/mail');
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    if (clubDetails) {
+      clubDetails.isApproved = true;
+      await clubDetails.save();
+    } else if (userDetails) {
+      userDetails.isApproved = true;
+      await userDetails.save();
+    }
 
-    const msg = {
-        to: userLogin.userEmail,
-        from: {
+  } catch (err) {
+    return next(new AppError("Failed to approve user", 500));
+  }
+
+  // Prepare email
+  const sgMail = require('@sendgrid/mail');
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+  let htmlPasswordLine = '';
+  if (userDetails && userDetails.userMobile) {
+    htmlPasswordLine = `<br><b>Password:</b> <b>${userDetails.userMobile}</b> (if you need to reset your password kindly check in profile and reset your password)`;
+  }
+
+  const msg = {
+    to: userLogin.userEmail,
+    from: {
       name: 'Rotaract3203 Account Activation',
       email: 'chandhuru.dev.in@gmail.com',
     },
-        subject: 'Your account has been approved',
-        text: `Hello,\n\nYour account has been approved by the admin.\n\nUsername: ${userLogin.userEmail}\nPassword: [hidden for security]\n\nYou may now log in.`,
-        html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}<br><b>Password:</b> <b>${userDetails.userMobile}</b> (if you need to reset your password kindly check in profile and reset your password)<br><br>You may now log in.`,
-    };
+    subject: 'Your account has been approved',
+    text: `Hello,
 
+Your account has been approved by the admin.
+
+Username: ${userLogin.userEmail}
+
+You may now log in.`,
+    html: `<strong>Hello,</strong><br>Your account has been approved.<br><br><b>Username:</b> ${userLogin.userEmail}${htmlPasswordLine}<br><br>You may now log in.`,
+  };
+
+  try {
     await sgMail.send(msg);
+  } catch (emailErr) {
+    // Log but don't block response
+    console.error("Email send failed:", emailErr);
+  }
 
-    return res.status(200).json({ message: "User approved and email sent" });
+  return res.status(200).json({ message: "User approved and email sent" });
 });
+
+
 
 const getUnapprovedUsers = catchAsync(async (req, res, next) => {
   // Step 1: Fetch all unapproved login_details
