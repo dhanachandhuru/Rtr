@@ -28,24 +28,31 @@ const getAllusers = catchAsync(async (req, res, next) => {
     FROM user_details ud
     JOIN login_details ld ON ud.id = ld."userId"
     LEFT JOIN designations d 
-  ON (
-    CASE 
-      WHEN ud."designation" ~ '^[0-9]+$' THEN ud."designation"::integer
-      ELSE NULL
-    END
-  ) = d."id"
-
+      ON (
+        CASE 
+          WHEN ud."designation"::text ~ '^[0-9]+$' THEN ud."designation"::integer
+          ELSE NULL
+        END
+      ) = d."id"
     WHERE ld."userType" != '1';
   `;
 
-  const [results, metadata] = await sequelize_db.query(query);
+  try {
+    const [results] = await sequelize_db.query(query);
 
-  if (!results || results.length === 0) {
-    return next(new AppError("No users found", 400));
+    // You can choose to return empty array instead of error if no users found:
+    if (!results || results.length === 0) {
+      return res.status(200).json([]); // or: next(new AppError("No users found", 400));
+    }
+
+    res.status(200).json(results);
+  } catch (err) {
+    // Optional: log underlying DB error for diagnostics
+    console.error('getAllusers error:', err);
+    return next(new AppError('Failed to fetch users', 500));
   }
-
-  res.status(200).json(results);
 });
+
 
 
 const updateUser = catchAsync(async(req,res,next) =>{
