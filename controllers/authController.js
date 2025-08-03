@@ -102,7 +102,6 @@ const signup = catchAsync(async (req, res, next) => {
             parentRotaryName: body.parentRotaryName,
             staffCoordinator: body.staffCoordinator,
             staffCoordinatorNumber: body.staffCoordinatorNumber,
-            cabinetMentor: body.cabinetMentor,
             assets: body.assets,
             facebookHandle: body.facebookHandle,
             instagramHandle: body.instagramHandle,
@@ -242,7 +241,7 @@ const getUnapprovedUsers = catchAsync(async (req, res, next) => {
   const unapprovedUsers = await login_details.findAll({
     where: {
       isApproved: false,
-      userType: { [Op.in]: ['1', '2', '4'] },
+      userType: { [Op.in]: ['1', '2', '3', '4'] },
     },
   });
   // Step 2: Attach related model manually based on userType

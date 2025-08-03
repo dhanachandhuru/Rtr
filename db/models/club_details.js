@@ -91,9 +91,6 @@ module.exports = sequelize.define("club_details",{
   staffCoordinatorNumber: {
     type: Sequelize.STRING
   },
-  cabinetMentor: {
-    type: Sequelize.INTEGER,
-  },
   assets: {
     type: Sequelize.STRING
   },
