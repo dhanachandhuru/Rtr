@@ -683,10 +683,10 @@ const generateAllReportSections = (doc, reports, pageWidth) => {
         doc.rect(50 + labelWidth + valueWidth, currentY, labelWidth, colHeights).stroke();
         doc.font('Helvetica-Bold').text('Date', 52 + labelWidth + valueWidth, currentY + 8);
 
-        doc.rect(50 + (labelWidth + valueWidth) * 1.5, currentY, valueWidth, colHeights).stroke();
+        doc.rect(0 + (labelWidth + valueWidth) * 1.5, currentY, valueWidth, colHeights).stroke();
         doc.font('Helvetica').text(
             report.createdAt ? new Date(report.createdAt).toLocaleDateString('en-GB') : 'N/A',
-            0 + (labelWidth + valueWidth) * 1.5,
+            50 + (labelWidth + valueWidth) * 1.5,
             currentY + 8
         );
         currentY += colHeights;
