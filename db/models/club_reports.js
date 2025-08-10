@@ -15,9 +15,9 @@ module.exports = sequelize.define("club_reports",{
     type: Sequelize.STRING
   },
   description: {
-    allowNull: false,
-    type: Sequelize.STRING
-  },
+  allowNull: false,
+  type: Sequelize.TEXT('long') // 'long' works in MySQL, for large text storage
+},
   rotractorsAttended: {
     allowNull: false,
     type: Sequelize.INTEGER
