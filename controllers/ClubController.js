@@ -569,7 +569,7 @@ const generateAndStorePDFFromAllReports = async (reports, clubInfo = null) => {
 
             // Create filename for multiple reports
             const currentDate = new Date().toISOString().split('T')[0];
-            const fileName = `rotaract_club_all_reports_${clubInfo?.clubName?.replace(/[^a-zA-Z0-9]/g, '_') || 'club'}_${currentDate}.pdf`;
+            const fileName = `club_reports_${clubInfo?.clubName?.replace(/[^a-zA-Z0-9]/g, '_') || 'club'}_${currentDate}.pdf`;
             
             const pdfDir = path.join(__dirname, '..', 'uploads', 'pdfs');
             
