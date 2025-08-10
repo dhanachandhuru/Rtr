@@ -969,7 +969,7 @@ const getAllPdfReportsForAdmin = catchAsync(async (req, res, next) => {
 
     const pdfs = await club_report_pdfs.findAll({
         order: [['createdAt', 'DESC']],
-        attributes: ['id', 'pdfFileName', 'fileSize', 'generatedAt', 'isMultiReport', 'createdAt']
+        attributes: ['id','clubId', 'pdfFileName', 'fileSize', 'generatedAt', 'isMultiReport', 'createdAt']
     });
 
     if (!pdfs.length) {
