@@ -1,4 +1,4 @@
-const { Op, Sequelize } = require("sequelize");
+const { Op, Sequelize, where } = require("sequelize");
 const user_details = require("../db/models/user_details");
 const AppError = require("../utils/appError");
 const catchAsync = require("../utils/catchAsync");
@@ -11,6 +11,12 @@ const club_details = require("../db/models/club_details");
 const assets = require("../db/models/assets");
 const club_reports = require("../db/models/club_reports");
 const club_events = require("../db/models/club_events");
+const PDFDocument = require('pdfkit');
+const path = require('path');
+const fs = require('fs');
+const club_report_pdfs = require("../db/models/club_report_submission_pdf");
+const { report } = require("../routes/adminRoutes");
+
 
 const getAllClubs = catchAsync(async (req, res, next) => {
     // select all the clubs from the table
@@ -454,4 +460,633 @@ const getAllCabinets = catchAsync(async (req, res, next) => {
 
 
 
-module.exports = { getEventWithId,activateUser,getAllCabinets, getAllEvents, deleteEvent, addEvent, getAllReport, addReport, updateClubAsset, getAllAssets, addAsset, updateClub, getClubData, getAllClubs, getMemberDetails, updateMember, getAllClubDesignations, CreateDesignationAndAssign, deleteDesignation, editDesignation }
+////// this section to till below closed ********* is a report downlading section
+////// GET ALL CLUB REPORTS //////
+const getAllClubReports = catchAsync(async (req, res, next) => {
+    const clubId = req.tokenDetail.userId;
+    console.log("Token Detail:", clubId);
+
+    try {
+        // Get all club reports
+        const reports = await club_reports.findAll({ 
+            where: { clubId: clubId },
+            order: [['createdAt', 'DESC']]
+        });
+
+        console.log("reports:", reports);
+        
+        if (!reports || reports.length === 0) {
+            return next(new AppError("No reports found", 404));
+        }
+
+        res.status(200).json(reports);
+
+    } catch (error) {
+        console.error('Get all club reports error:', error);
+        return next(new AppError("Failed to get reports", 500));
+    }
+});
+
+
+const downloadClubReportPDF = catchAsync(async (req, res, next) => {
+    const clubId = req.tokenDetail.userId;
+
+    try {
+        // ✅ Check if models exist
+        if (!club_reports) {
+            return next(new AppError("Club reports model not available", 500));
+        }
+
+        // ✅ Fetch all reports
+        const reports = await club_reports.findAll({ 
+            where: { clubId },
+            order: [['createdAt', 'ASC']]
+        });
+        
+        console.log("reports found:", reports.length);
+
+        if (!reports || reports.length === 0) {
+            return next(new AppError("No reports found", 404));
+        }
+
+        if (!club_details) {
+            return next(new AppError("Club details model not available", 500));
+        }
+
+        // ✅ Fetch club details
+        const clubInfo = await club_details.findByPk(clubId, {
+            attributes: ['clubName', 'parentRotaryName', 'charterId', 'charterDate']
+        });
+
+        console.log("clubInfo", clubInfo);
+        if (!clubInfo) {
+            return next(new AppError("Club details not found", 404));
+        }
+
+        // ✅ Generate SINGLE PDF for ALL reports
+        const pdfResult = await generateAndStorePDFFromAllReports(reports, clubInfo);
+        console.log("pdfResult", pdfResult);
+
+        // ✅ Store PDF in DB
+        try {
+            await club_report_pdfs.create({
+                reportId: null,
+                clubId,
+                pdfFileName: pdfResult.fileName,
+                pdfPath: pdfResult.filePath,
+                pdfBuffer: pdfResult.buffer,
+                fileSize: pdfResult.fileSize,
+                generatedAt: new Date(),
+                isMultiReport: true
+            });
+            console.log("PDF successfully stored in database");
+        } catch (dbError) {
+            console.error("Database storage failed, continuing with download:", dbError.message);
+            // Continue without failing the request
+        }
+
+        // ✅ Send PDF file in response
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${pdfResult.fileName}"`);
+        res.setHeader("Content-Length", pdfResult.fileSize);
+        res.send(pdfResult.buffer);
+
+    } catch (error) {
+        console.error("PDF generation error:", error);
+        return next(new AppError("Error generating PDF", 500));
+    }
+});
+
+
+////// GENERATE AND STORE PDF FROM ALL REPORTS DATA //////
+const generateAndStorePDFFromAllReports = async (reports, clubInfo = null) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ 
+                size: 'A4', 
+                margins: { top: 50, bottom: 50, left: 50, right: 50 } 
+            });
+
+            // Create filename for multiple reports
+            const currentDate = new Date().toISOString().split('T')[0];
+            const fileName = `rotaract_club_all_reports_${clubInfo?.clubName?.replace(/[^a-zA-Z0-9]/g, '_') || 'club'}_${currentDate}.pdf`;
+            
+            const pdfDir = path.join(__dirname, '..', 'uploads', 'pdfs');
+            
+            // Create PDF directory if it doesn't exist
+            if (!fs.existsSync(pdfDir)) {
+                fs.mkdirSync(pdfDir, { recursive: true });
+            }
+            
+            const filePath = path.join(pdfDir, fileName);
+            
+            // Create write stream
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
+
+            // Collect PDF buffer
+            const buffers = [];
+            doc.on('data', buffers.push.bind(buffers));
+            
+            // Generate PDF content for ALL reports
+            generatePDFContentForAllReports(doc, reports, clubInfo);
+            
+            // Finalize PDF
+            doc.end();
+
+            stream.on('finish', () => {
+                try {
+                    const buffer = Buffer.concat(buffers);
+                    const fileSize = fs.statSync(filePath).size;
+                    
+                    resolve({
+                        fileName,
+                        filePath,
+                        buffer,
+                        fileSize
+                    });
+                } catch (error) {
+                    console.error('Error in stream finish:', error);
+                    reject(error);
+                }
+            });
+
+            stream.on('error', (error) => {
+                console.error('Stream error:', error);
+                reject(error);
+            });
+            
+            doc.on('error', (error) => {
+                console.error('PDF doc error:', error);
+                reject(error);
+            });
+
+        } catch (error) {
+            console.error('Error in generateAndStorePDFFromAllReports:', error);
+            reject(error);
+        }
+    });
+};
+
+////// PDF CONTENT GENERATION FOR ALL REPORTS //////
+const generatePDFContentForAllReports = async (doc, reports, clubInfo) => {
+    const pageWidth = doc.page.width - 100; // Account for margins
+
+    // Header section (once)
+    generateHeader(doc, pageWidth);
+
+    // Club details section (once)
+    generateClubDetails(doc, reports, clubInfo, pageWidth);
+
+    // Monthly summary section (once)
+    generateMonthlyReportSummary(doc, reports, pageWidth);
+
+    // Combined section for each report (projects + photos + descriptions)
+    generateAllReportSections(doc, reports, pageWidth);
+};
+
+// ✅ NEW FUNCTION — Single loop for all sections
+const generateAllReportSections = (doc, reports, pageWidth) => {
+    let currentY = doc.y + 20;
+    console.log("reports", reports);
+
+    reports.forEach((report, index) => {
+        const colHeights = 25;
+        const labelWidth = 100;
+        const valueWidth = 150;
+
+        // Page break check
+        if (currentY > 650) {
+            doc.addPage();
+            currentY = 80;
+        }
+
+        doc.rect(50, currentY, pageWidth, 25).fill('#E91E63');
+        doc.fillColor('white')
+           .fontSize(14)
+           .font('Helvetica-Bold')
+           .text(`REPORT ${index + 1}`, 50, currentY + 8, { 
+             width: pageWidth, 
+             align: 'center' 
+           });
+        
+        doc.fillColor('black');
+        currentY += 40;
+
+        // === Row 1: S. No + Date ===
+        doc.rect(50, currentY, labelWidth, colHeights).stroke();
+        doc.font('Helvetica-Bold').fontSize(9).text('S. No', 52, currentY + 8);
+
+        doc.rect(50 + labelWidth, currentY, valueWidth, colHeights).stroke();
+        doc.font('Helvetica').text(index + 1, 52 + labelWidth, currentY + 8);
+
+        doc.rect(50 + labelWidth + valueWidth, currentY, labelWidth, colHeights).stroke();
+        doc.font('Helvetica-Bold').text('Date', 52 + labelWidth + valueWidth, currentY + 8);
+
+        doc.rect(50 + (labelWidth + valueWidth) * 1.5, currentY, valueWidth, colHeights).stroke();
+        doc.font('Helvetica').text(
+            report.createdAt ? new Date(report.createdAt).toLocaleDateString('en-GB') : 'N/A',
+            52 + (labelWidth + valueWidth) * 1.5,
+            currentY + 8
+        );
+        currentY += colHeights;
+
+        // === Row 2: Project Name ===
+        doc.rect(50, currentY, labelWidth, colHeights).stroke();
+        doc.font('Helvetica-Bold').text('Project Name', 52, currentY + 8);
+
+        doc.rect(50 + labelWidth, currentY, (labelWidth + valueWidth) * 1.5, colHeights).stroke();
+        doc.font('Helvetica').text(report.reportName || 'N/A', 52 + labelWidth, currentY + 8);
+        currentY += colHeights;
+
+        // === Row 3: Attendance header ===
+        const attendanceWidth = (labelWidth + valueWidth) * 1.5;
+        doc.rect(50, currentY, labelWidth, colHeights * 2).stroke(); // Avenue col spans 2 rows
+        doc.font('Helvetica-Bold').text('Avenue', 52, currentY + colHeights / 2);
+
+        doc.rect(50 + labelWidth, currentY, 80, colHeights * 2).stroke(); // Beneficiary col spans 2 rows
+        doc.font('Helvetica-Bold').text('No. of Beneficiary', 52 + labelWidth, currentY + colHeights / 2, {
+            width: 78,
+            align: 'center'
+        });
+
+        doc.rect(50 + labelWidth + 80, currentY, attendanceWidth - 80, colHeights).stroke(); // Attendance merged header
+        doc.font('Helvetica-Bold').text('Attendance', 52 + labelWidth + 80, currentY + 8, {
+            width: attendanceWidth - 82,
+            align: 'center'
+        });
+
+        currentY += colHeights;
+
+        // === Row 4: Attendance sub-headers ===
+        const attendanceCols = ['Rotaractors Attended', 'Rotarians Attended', 'Guests', 'Visiting Rtr'];
+        const attColWidth = (attendanceWidth - 80) / attendanceCols.length;
+
+        attendanceCols.forEach((header, i) => {
+            const x = 50 + labelWidth + 80 + i * attColWidth;
+            doc.rect(x, currentY, attColWidth, colHeights).stroke();
+            doc.font('Helvetica-Bold').fontSize(8).text(header, x + 2, currentY + 8, {
+                width: attColWidth - 4,
+                align: 'center'
+            });
+        });
+
+        currentY += colHeights;
+
+        // === Row 5: Data row ===
+        doc.rect(50, currentY, labelWidth, colHeights).stroke();
+        doc.font('Helvetica').text(report.avenue || 'CLUB', 52, currentY + 8);
+
+        doc.rect(50 + labelWidth, currentY, 80, colHeights).stroke();
+        doc.font('Helvetica').text((report.beneficiaries || 0).toString(), 52 + labelWidth, currentY + 8, {
+            width: 78,
+            align: 'center'
+        });
+
+        const attendanceValues = [
+            report.rotractorsAttended || 0,
+            report.rotariansAttended || 0,
+            report.guests || 0,
+            report.visitingRotractors || 0
+        ];
+
+        attendanceValues.forEach((val, i) => {
+            const x = 50 + labelWidth + 80 + i * attColWidth;
+            doc.rect(x, currentY, attColWidth, colHeights).stroke();
+            doc.font('Helvetica').text(val.toString(), x, currentY + 8, {
+                width: attColWidth,
+                align: 'center'
+            });
+        });
+
+        currentY += colHeights + 20;
+
+        // === Photographs Section ===
+        if (report.gDriveFolder) {
+            if (currentY > 650) {
+                doc.addPage();
+                currentY = 80;
+            }
+            doc.fontSize(12).font('Helvetica-Bold').text('Photographs:', 50, currentY);
+            currentY += 15;
+            doc.fontSize(10).font('Helvetica').fillColor('blue').text(report.gDriveFolder, 50, currentY, {
+                width: pageWidth,
+                link: report.gDriveFolder
+            });
+            currentY += 20;
+        }
+
+        // === Description Section ===
+        if (report.description) {
+            if (currentY > 650) {
+                doc.addPage();
+                currentY = 80;
+            }
+            doc.fillColor('black').fontSize(12).font('Helvetica-Bold').text('Description:', 50, currentY);
+            currentY += 15;
+            doc.fontSize(10).font('Helvetica').text(report.description, 50, currentY, {
+                width: pageWidth,
+                align: 'justify'
+            });
+            currentY += doc.heightOfString(report.description, { width: pageWidth }) + 20;
+        }
+    });
+
+    doc.y = currentY;
+};
+
+// Generate header section (UNCHANGED - runs once)
+const generateHeader = (doc, pageWidth) => {
+    // Header background colors
+    doc.rect(50, 30, pageWidth / 2, 30).fill('#F4B942'); // Yellow
+    doc.rect(50 + pageWidth / 2, 30, pageWidth / 2, 30).fill('#4A90E2'); // Blue
+    
+    // Reset fill color
+    doc.fillColor('black');
+    
+    // Title section
+    doc.fontSize(16)
+       .font('Helvetica-Bold')
+       .text('DISTRICT ROTARACT COUNCIL 2025-26', 50, 80, { 
+         width: pageWidth, 
+         align: 'center' 
+       });
+    
+    doc.fontSize(12)
+       .font('Helvetica')
+       .text('ROTARY INTERNATIONAL DISTRICT 3203', 50, 100, { 
+         width: pageWidth, 
+         align: 'center' 
+       });
+    
+    doc.text('Coimbatore - Rural | Erode | Nilgiris | Tirupur', 50, 115, { 
+      width: pageWidth, 
+      align: 'center' 
+    });
+    
+    doc.text('Email: 3203district@rotaractcouncil@gmail.com', 50, 130, { 
+      width: pageWidth, 
+      align: 'center' 
+    });
+    
+    // Club details header
+    doc.rect(50, 160, pageWidth, 25).fill('#E91E63'); // Pink header
+    doc.fillColor('white')
+       .fontSize(14)
+       .font('Helvetica-Bold')
+       .text('CLUB DETAILS', 50, 170, { 
+         width: pageWidth, 
+         align: 'center' 
+       });
+    
+    doc.fillColor('black'); // Reset color
+};
+
+// Generate club details section (UPDATED - runs once)
+const generateClubDetails = (doc, reports, clubInfo, pageWidth) => {
+    let currentY = 200;
+    
+    const clubName = clubInfo && clubInfo.clubName ? clubInfo.clubName.toUpperCase() : 'CLUB NAME NOT AVAILABLE';
+    const parentRotaryName = clubInfo && clubInfo.parentRotaryName ? clubInfo.parentRotaryName.toUpperCase() : 'PARENT ROTARY CLUB NOT AVAILABLE';
+    const report = reports.length > 0 && reports[0].month ? reports[0].month.toUpperCase() : 'Month';
+    console.log("in report list", reports);
+    
+    doc.fontSize(14)
+       .font('Helvetica-Bold')
+       .text('ROTARACT CLUB OF', 50, currentY, { 
+         width: pageWidth, 
+         align: 'center' 
+       });
+    
+    currentY += 25;
+    doc.fontSize(12)
+       .font('Helvetica')
+       .text(clubName, 50, currentY, { 
+         width: pageWidth, 
+         align: 'center' 
+       });
+    
+    currentY += 25;
+    doc.fontSize(10)
+       .font('Helvetica')
+       .text(`Charter ID: ${clubInfo?.charterId || 'N/A'}`, 50, currentY);
+    
+    doc.text(`Charter Date: ${clubInfo?.charterDate || 'N/A'}`, 300, currentY);
+    
+    currentY += 20;
+    doc.text(`Parent Rotary Club: ${parentRotaryName}`, 50, currentY);
+    doc.text(`REPORT FOR THE MONTH: ${report}`, 300, currentY);
+    
+    doc.y = currentY + 30;
+};
+
+// Generate monthly report SUMMARY section (NEW - runs once, summarizes all reports)
+const generateMonthlyReportSummary = (doc, reports, pageWidth) => {
+    let currentY = doc.y + 20;
+    
+    // Check if we need a new page
+    if (currentY > 650) {
+        doc.addPage();
+        currentY = 80;
+    }
+    
+    // Monthly report header
+    doc.rect(50, currentY, pageWidth, 25).fill('#E91E63');
+    doc.fillColor('white')
+       .fontSize(14)
+       .font('Helvetica-Bold')
+       .text('REPORTS SUMMARY', 50, currentY + 8, { 
+         width: pageWidth, 
+         align: 'center' 
+       });
+    
+    doc.fillColor('black');
+    currentY += 40;
+    
+    // Calculate totals from all reports
+    const totalBeneficiaries = reports.reduce((sum, report) => sum + (report.beneficiaries || 0), 0);
+    const totalRotractors = reports.reduce((sum, report) => sum + (report.rotractorsAttended || 0), 0);
+    const totalRotarians = reports.reduce((sum, report) => sum + (report.rotariansAttended || 0), 0);
+    const totalVisitingRotractors = reports.reduce((sum, report) => sum + (report.visitingRotractors || 0), 0);
+    
+    // Summary table
+    const summaryData = [
+        ['Total Reports', reports.length.toString()],
+        ['Total Beneficiaries', totalBeneficiaries.toString()],
+        ['Total Rotractors Attended', totalRotractors.toString()],
+        ['Total Rotarians Attended', totalRotarians.toString()],
+        ['Total Visiting Rotractors', totalVisitingRotractors.toString()]
+    ];
+    
+    generateTable(doc, summaryData, 50, currentY, pageWidth);
+    doc.y = currentY + (summaryData.length * 25) + 20;
+};
+
+// Helper function to generate simple tables (UNCHANGED)
+const generateTable = (doc, data, x, y, width) => {
+    const rowHeight = 25;
+    const colWidth = width / 2;
+    
+    data.forEach((row, index) => {
+        const currentY = y + (index * rowHeight);
+        
+        // Draw cells
+        doc.rect(x, currentY, colWidth, rowHeight).stroke();
+        doc.rect(x + colWidth, currentY, colWidth, rowHeight).stroke();
+        
+        // Add text
+        doc.fontSize(10)
+           .font('Helvetica-Bold')
+           .text(row[0], x + 5, currentY + 8, { width: colWidth - 10 });
+        
+        doc.font('Helvetica')
+           .text(row[1], x + colWidth + 5, currentY + 8, { width: colWidth - 10 });
+    });
+};
+
+const getAllPdfReports = catchAsync(async (req, res, next) => {
+    const clubId = req.tokenDetail.userId;
+
+    const pdfs = await club_report_pdfs.findAll({
+        where: { clubId },
+        order: [['createdAt', 'DESC']],
+        attributes: ['id', 'pdfFileName', 'fileSize', 'generatedAt', 'isMultiReport', 'createdAt']
+    });
+
+    if (!pdfs.length) {
+        return next(new AppError("No PDF reports found", 404));
+    }
+
+    res.status(200).json({
+        status: "success",
+        results: pdfs.length,
+        data: pdfs
+    });
+});
+
+const getAllPdfReportsForAdmin = catchAsync(async (req, res, next) => {
+    const adminId = req.tokenDetail.userId;
+
+    const pdfs = await club_report_pdfs.findAll({
+        order: [['createdAt', 'DESC']],
+        attributes: ['id', 'pdfFileName', 'fileSize', 'generatedAt', 'isMultiReport', 'createdAt']
+    });
+
+    if (!pdfs.length) {
+        return next(new AppError("No PDF reports found", 404));
+    }
+
+    res.status(200).json({
+        status: "success",
+        results: pdfs.length,
+        data: pdfs
+    });
+});
+
+// ✅ 2. Get/download a single PDF report by ID
+const getPdfReportById = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const clubId = req.tokenDetail.userId;
+
+    const pdf = await club_report_pdfs.findOne({
+        where: { id, clubId }
+    });
+
+    if (!pdf) {
+        return next(new AppError("PDF report not found", 404));
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${pdf.pdfFileName}"`);
+    res.setHeader("Content-Length", pdf.fileSize || pdf.pdfBuffer.length);
+    res.send(pdf.pdfBuffer);
+});
+
+// ✅ 3. Delete a PDF report by ID
+// Delete a stored PDF
+
+const deletePdfReportById = catchAsync(async (req, res, next) => {
+    const pdfId = req.params.pdfId; // match the route param name
+    console.log("pdfId", pdfId);
+    const clubId = req.tokenDetail.userId; // If you need it for validation
+
+    if (!pdfId) {
+        return next(new AppError("PDF ID is required", 400));
+    }
+
+    const deleted = await club_report_pdfs.destroy({
+        where: { id: pdfId }
+    });
+
+    if (!deleted) {
+        return next(new AppError("PDF report not found or already deleted", 404));
+    }
+
+    res.status(200).json({
+        status: "success",
+        message: "PDF report deleted successfully"
+    });
+});
+
+
+
+// Controller
+const downloadReportByIdV2 = catchAsync(async (req, res) => {
+  try {
+    const reportId = req.params.reportId; // match the route param name
+    console.log("reportId", reportId);
+
+    if (!reportId) {
+      return res.status(400).json({
+        status: "error",
+        message: "Report ID is required"
+      });
+    }
+
+    const reportPdf = await club_report_pdfs.findOne({
+      where: { id: reportId }
+    });
+
+    if (!reportPdf) {
+      return res.status(404).json({
+        status: "error",
+        message: "PDF not found"
+      });
+    }
+
+    // If you're storing file path in pdfPath
+    return res.download(reportPdf.pdfPath);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      status: "error",
+      message: "Server error"
+    });
+  }
+});
+
+// Route
+
+
+
+
+
+
+
+// [Include all the PDF generation helper functions from previous artifact here]
+// generateHeader, generateClubDetails, generateMonthlyReportSection, etc.
+
+module.exports = { getEventWithId,activateUser,getAllCabinets, getAllEvents, deleteEvent, addEvent, getAllReport, addReport, updateClubAsset, getAllAssets, addAsset, updateClub, getClubData, getAllClubs, getMemberDetails, updateMember, getAllClubDesignations, CreateDesignationAndAssign, deleteDesignation, editDesignation, getAllClubReports, downloadClubReportPDF,
+    generateAndStorePDFFromAllReports,
+    generatePDFContentForAllReports,
+    generateAllReportSections,
+    generateHeader,
+    generateClubDetails,
+    generateMonthlyReportSummary,
+    generateTable,
+    getAllPdfReports,
+    getPdfReportById,
+    deletePdfReportById,
+    downloadReportByIdV2,
+    getAllPdfReportsForAdmin
+}
