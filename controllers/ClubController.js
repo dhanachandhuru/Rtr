@@ -464,7 +464,7 @@ const getAllCabinets = catchAsync(async (req, res, next) => {
 ////// GET ALL CLUB REPORTS //////
 const getAllClubReports = catchAsync(async (req, res, next) => {
     const clubId = req.tokenDetail.userId;
-    console.log("Token Detail:", clubId);
+    // console.log("Token Detail:", clubId);
 
     try {
         // Get all club reports
@@ -473,7 +473,7 @@ const getAllClubReports = catchAsync(async (req, res, next) => {
             order: [['createdAt', 'DESC']]
         });
 
-        console.log("reports:", reports);
+        // console.log("reports:", reports);
         
         if (!reports || reports.length === 0) {
             return next(new AppError("No reports found", 404));
@@ -503,7 +503,7 @@ const downloadClubReportPDF = catchAsync(async (req, res, next) => {
             order: [['createdAt', 'ASC']]
         });
         
-        console.log("reports found:", reports.length);
+        // console.log("reports found:", reports.length);
 
         if (!reports || reports.length === 0) {
             return next(new AppError("No reports found", 404));
@@ -525,7 +525,7 @@ const downloadClubReportPDF = catchAsync(async (req, res, next) => {
 
         // ✅ Generate SINGLE PDF for ALL reports
         const pdfResult = await generateAndStorePDFFromAllReports(reports, clubInfo);
-        console.log("pdfResult", pdfResult);
+        // console.log("pdfResult", pdfResult);
 
         // ✅ Store PDF in DB
         try {
@@ -648,7 +648,7 @@ const generatePDFContentForAllReports = async (doc, reports, clubInfo) => {
 // ✅ NEW FUNCTION — Single loop for all sections
 const generateAllReportSections = (doc, reports, pageWidth) => {
     let currentY = doc.y + 20;
-    console.log("reports", reports);
+    // console.log("reports", reports);
 
     reports.forEach((report, index) => {
         const colHeights = 25;
@@ -686,7 +686,7 @@ const generateAllReportSections = (doc, reports, pageWidth) => {
         doc.rect(50 + (labelWidth + valueWidth) * 1.5, currentY, valueWidth, colHeights).stroke();
         doc.font('Helvetica').text(
             report.createdAt ? new Date(report.createdAt).toLocaleDateString('en-GB') : 'N/A',
-            52 + (labelWidth + valueWidth) * 1.5,
+            0 + (labelWidth + valueWidth) * 1.5,
             currentY + 8
         );
         currentY += colHeights;
@@ -1007,7 +1007,7 @@ const getPdfReportById = catchAsync(async (req, res, next) => {
 
 const deletePdfReportById = catchAsync(async (req, res, next) => {
     const pdfId = req.params.pdfId; // match the route param name
-    console.log("pdfId", pdfId);
+    // console.log("pdfId", pdfId);
     const clubId = req.tokenDetail.userId; // If you need it for validation
 
     if (!pdfId) {
@@ -1034,7 +1034,7 @@ const deletePdfReportById = catchAsync(async (req, res, next) => {
 const downloadReportByIdV2 = catchAsync(async (req, res) => {
   try {
     const reportId = req.params.reportId; // match the route param name
-    console.log("reportId", reportId);
+    // console.log("reportId", reportId);
 
     if (!reportId) {
       return res.status(400).json({
