@@ -7,6 +7,7 @@ const catchAsync = require("../utils/catchAsync")
 const AppError = require("../utils/appError")
 const user_details = require("../db/models/user_details")
 const { Op } = require('sequelize');
+const cabinet_events = require("../db/models/cabinet_events")
 // const sequelize_db = require('../config/config.js'); // adjust path as needed
 
 
@@ -196,23 +197,27 @@ const signup = catchAsync(async (req, res, next) => {
 // approveUser
 const approveUser = catchAsync(async (req, res, next) => {
   const { userId } = req.params; 
+  console.log("userId",userId);
 
   // fetch login once
   let userLogin = await login_details.findOne({
     where: {
       [Op.or]: [
-        { id: userId},
+        { userId: userId},
         // you can uncomment if you ever want clubId based lookup:
         // { clubId: userId },
       ],
     },
   });
+  console.log("userLogin",userLogin);
+  
 
 if (!userLogin) {
   userLogin = await login_details.findOne({
     where: { userId },
   });
 }
+
 
 if (!userLogin) {
   return next(new AppError("User login not found", 404));
@@ -223,7 +228,9 @@ if (!userLogin) {
 
   let userDetails = null;
   let clubDetails = null;
+  let cabinetDetails = null;
   const userTypeStr = String(userLogin.userType).toLowerCase();
+  console.log("userTypeStr",userTypeStr);
 
   if (userTypeStr === '3' || userTypeStr === 'club') {
     // club account
@@ -231,6 +238,13 @@ if (!userLogin) {
     clubDetails = await club_details.findOne({ where: { id: clubId } });
     if (!clubDetails) {
       return next(new AppError("clubDetails not found", 404));
+    }
+  } else if (userTypeStr === '2' || userTypeStr === 'cabinet') {
+    // cabinet account
+    userDetails = await user_details.findOne({ where: { id: userId } });
+    console.log("userDetails",userDetails);
+    if (!userDetails) {
+      return next(new AppError("userDetails not found", 404));
     }
   } else {
     // normal user
@@ -255,11 +269,13 @@ if (!userLogin) {
     await userLogin.save();
 
     if (clubDetails) {
+      console.log("inside club");
       clubDetails.isApproved = true;
       await clubDetails.save();
     } else if (userDetails) {
       userDetails.isApproved = true;
       await userDetails.save();
+      console.log("inside user");
     }
   } catch (err) {
     console.error("Approval save failed:", err);
@@ -269,6 +285,7 @@ if (!userLogin) {
   // Prepare email
   const sgMail = require('@sendgrid/mail');
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  console.log("API Key exists:", !!process.env.SENDGRID_API_KEY);
 
   let msg;
   if (userTypeStr === '3' || userTypeStr === 'club') {
@@ -292,6 +309,7 @@ if (!userLogin) {
 
     };
     }else{
+      console.log("inside user ");
         msg = {
 
         to: userLogin.userEmail,
